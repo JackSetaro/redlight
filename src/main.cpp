@@ -41,7 +41,12 @@ bool schedEnabled = false;
 int  schedOnHour  = 20, schedOnMin  = 0;
 int  schedOffHour = 8,  schedOffMin = 0;
 
-void ToggleRedlight();
+// Manual override: set when user toggles manually, cleared on schedule transition
+bool manualOverride      = false;
+bool lastScheduleState   = false;
+bool scheduleInitialized = false;
+
+void ToggleRedlight(bool manual = false);
 void UpdateTrayIconTip(const char* tip);
 void InitializeTrayIcon(HINSTANCE hInstance);
 void ShowAboutDialog(HWND parent);
@@ -208,7 +213,16 @@ bool IsInScheduleWindow() {
 void CheckSchedule() {
     if (!schedEnabled) return;
     bool shouldBeOn = IsInScheduleWindow();
-    if (shouldBeOn != isRedlightActive)
+
+    // Detect schedule transition (period flipped) — clear any manual override
+    if (scheduleInitialized && shouldBeOn != lastScheduleState)
+        manualOverride = false;
+
+    lastScheduleState   = shouldBeOn;
+    scheduleInitialized = true;
+
+    // Only enforce schedule if user hasn't manually overridden
+    if (!manualOverride && shouldBeOn != isRedlightActive)
         ToggleRedlight();
 }
 
@@ -256,7 +270,8 @@ void UpdateTrayIconTip(const char* tip) {
     Shell_NotifyIcon(NIM_MODIFY, &nid);
 }
 
-void ToggleRedlight() {
+void ToggleRedlight(bool manual) {
+    if (manual) manualOverride = true;
     if (isRedlightActive) {
         KillTimer(hwndTray, ID_REFRESH_TIMER);
         DestroyMagnifierOverlay();
@@ -332,6 +347,8 @@ INT_PTR CALLBACK ScheduleDlgProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lPa
             schedOffMin  = m < 0 ? 0 : m > 59 ? 59 : m;
 
             SaveSchedule();
+            manualOverride      = false;
+            scheduleInitialized = false; // force re-evaluation
             CheckSchedule();
             EndDialog(hwnd, IDOK);
             return TRUE;
@@ -369,13 +386,13 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
                 DestroyMenu(hMenu);
             }
         } else if (lParam == WM_LBUTTONDOWN) {
-            ToggleRedlight();
+            ToggleRedlight(true);
         }
         break;
 
     case WM_COMMAND:
         if (LOWORD(wParam) == ID_TRAY_TOGGLE) {
-            ToggleRedlight();
+            ToggleRedlight(true);
         } else if (LOWORD(wParam) == ID_TRAY_SCHEDULE) {
             ShowScheduleDialog(hwnd);
         } else if (LOWORD(wParam) == ID_TRAY_AUTOSTART) {
